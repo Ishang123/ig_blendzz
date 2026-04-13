@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
+import HISTORICAL from "./history.js";
 
 const SERVICES = [
   { id: "trim", label: "Trim", desc: "Clean trim, lined up", price: 15 },
@@ -62,8 +63,11 @@ export default function App() {
   const tapRef = useRef({ count: 0, timer: null });
 
   useEffect(() => {
-    const b = sGet("bookings_v3"), a = sGet("availability_v2"), o = sGet("overrides_v2");
-    if (b) setBookings(b);
+    const b = sGet("bookings_v3") || [], a = sGet("availability_v2"), o = sGet("overrides_v2");
+    // merge historical + new bookings, dedup by id
+    const ids = new Set(b.map(x => x.id));
+    const merged = [...HISTORICAL.filter(x => !ids.has(x.id)), ...b];
+    setBookings(merged);
     if (a) setAvailability(a);
     if (o) setOverrides(o);
     setLoaded(true);
@@ -174,7 +178,7 @@ export default function App() {
         </div>
         {isAdmin && (
           <div style={{ display: "flex", gap: 6 }}>
-            {["dashboard", "bookings", "schedule"].map((t) => (
+            {["dashboard", "upcoming", "bookings", "schedule"].map((t) => (
               <button key={t} onClick={() => setAdminTab(t)} style={{
                 padding: "8px 16px", borderRadius: 8, border: adminTab === t ? "none" : `1px solid ${border}`,
                 background: adminTab === t ? card2 : "transparent", color: adminTab === t ? textMain : textDim,
@@ -384,6 +388,44 @@ export default function App() {
           )}
         </div>
       )}
+
+      {adminTab === "upcoming" && (() => {
+        const now = todayISO();
+        const upcoming = active.filter(b => b.date >= now).sort((a, b) => a.date === b.date ? a.time.localeCompare(b.time) : a.date.localeCompare(b.date));
+        const grouped = {};
+        upcoming.forEach(b => { if (!grouped[b.date]) grouped[b.date] = []; grouped[b.date].push(b); });
+        const dates = Object.keys(grouped).sort();
+        return (
+          <div style={{ animation: "fadeUp .35s ease" }}>
+            {dates.length === 0 ? <div style={{ textAlign: "center", padding: "60px 0", color: textDim }}>No upcoming appointments.</div> : (
+              dates.map(date => (
+                <div key={date} style={{ marginBottom: 28 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+                    <h3 style={{ fontFamily: font, fontSize: 18, fontWeight: 600 }}>{fmtDate(date)}</h3>
+                    <span style={{ fontSize: 12, color: gold, background: `${gold}15`, padding: "3px 10px", borderRadius: 6, fontWeight: 600 }}>{grouped[date].length} cut{grouped[date].length > 1 ? "s" : ""}</span>
+                    {date === now && <span style={{ fontSize: 11, color: "#5BA87D", background: "#5BA87D15", padding: "3px 10px", borderRadius: 6, fontWeight: 600 }}>TODAY</span>}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {grouped[date].sort((a, b) => {
+                      const toMin = (t) => { const [time, ap] = t.split(" "); let [h, m] = time.split(":").map(Number); if (ap === "PM" && h !== 12) h += 12; if (ap === "AM" && h === 12) h = 0; return h * 60 + m; };
+                      return toMin(a.time) - toMin(b.time);
+                    }).map(b => (
+                      <div key={b.id} style={{ display: "flex", alignItems: "center", padding: "14px 18px", background: card, borderRadius: 12, border: `1px solid ${border}`, gap: 16 }}>
+                        <div style={{ minWidth: 80, fontWeight: 700, fontSize: 14, color: gold }}>{b.time}</div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 600, fontSize: 14 }}>{b.name}</div>
+                          <div style={{ fontSize: 12, color: textDim, marginTop: 2 }}>{SERVICES.find(s => s.id === b.service)?.label}{b.phone ? ` · ${b.phone}` : ""}</div>
+                        </div>
+                        <button onClick={() => cancelBooking(b.id)} style={{ width: 32, height: 32, borderRadius: 8, border: `1px solid ${border}`, background: "transparent", color: textDim, cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        );
+      })()}
 
       {adminTab === "schedule" && (
         <div style={{ animation: "fadeUp .35s ease" }}>
